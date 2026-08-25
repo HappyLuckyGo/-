@@ -91,6 +91,8 @@
       cursor: pointer;
       font-weight: bold;
       flex-grow: 1;
+      font-size: 1.1rem;
+      color: #2c3e50;
     }
 
     .btn {
@@ -190,7 +192,6 @@
       font-size: 14px;
     }
 
-    /* 表单样式 */
     .form-group {
       margin-bottom: 12px;
     }
@@ -238,17 +239,25 @@
     </select>
   </div>
 
-  <!-- 首页 -->
-  <div id="home">
-    <div id="lists"></div>
+  <!-- 页面1：最外层账本列表（一开始是空的） -->
+  <div id="pageTravels">
+    <div id="travelLists"></div>
+    <button class="btn" onclick="addTravelList()">+ 新增旅行 List (账本)</button>
+  </div>
+
+  <!-- 页面2：某个账本里的“分类列表”（吃、交通、杂费等） -->
+  <div id="pageCategories" class="hidden">
+    <div class="back" onclick="goBackToTravels()">⬅️ 返回账本列表</div>
+    <h3 id="travelTitle" style="color: #2c3e50; margin-bottom: 15px;"></h3>
+    <div id="categoryLists"></div>
     <button class="btn" onclick="addCategory()">+ 新增分类</button>
   </div>
 
-  <!-- 分类页面 -->
-  <div id="detail" class="hidden">
-    <div class="back" onclick="goBack()">⬅️ 返回首页</div>
-    <h3 id="title"></h3>
-    <div id="items"></div>
+  <!-- 页面3：某个分类下的“具体账目明细” -->
+  <div id="pageItems" class="hidden">
+    <div class="back" onclick="goBackToCategories()">⬅️ 返回分类列表</div>
+    <h3 id="categoryTitle"></h3>
+    <div id="itemLists"></div>
     <h4 id="total"></h4>
     <button class="btn" onclick="openAddItemModal()">+ 添加账目</button>
   </div>
@@ -259,7 +268,7 @@
 <div id="rateModal" class="modal hidden">
   <div class="modal-content">
     <div class="rate-header-row">
-      <h3 id="rateTitle" style="margin:0;">参考汇率 (相对 1 MYR)</h3>
+      <h3 id="rateTitle" style="margin:0;">参考汇率 (1 外币 = 多少 MYR)</h3>
       <button class="reverse-arrow-btn" onclick="toggleRateDirection()">🔄 切换视角</button>
     </div>
     <div id="rateList"></div>
@@ -295,7 +304,6 @@
 </div>
 
 <script>
-// 汇率基准：1 单位外币 = 多少 MYR
 const exchangeRates = {
   "MYR": 1.0,
   "THB": 0.13,   
@@ -305,62 +313,72 @@ const exchangeRates = {
   "SGD": 3.50    
 };
 
-let appData = JSON.parse(localStorage.getItem("travel_data_v2")) || {
+// 数据结构：一开始是空的 travels 对象
+let appData = JSON.parse(localStorage.getItem("travel_data_v3")) || {
   base: "MYR",
-  categories: {
-    "🍜 吃": [],
-    "🚗 交通": [],
-    "🛍️ 杂费": []
-  }
+  travels: {} 
 };
 
-let currentCategory = null;
+let currentTravelKey = null;   // 当前选中的大账本 (例如: "泰国曼谷行")
+let currentCategoryKey = null; // 当前选中的分类 (例如: "🍜 吃")
 let isEditMode = false; 
 let editingItemIndex = null; 
-let isRateReversed = false; // 汇率展示视角状态：false为 1外币=多少MYR，true为 1MYR=多少外币
+let isRateReversed = false; 
 
 document.getElementById("baseCurrencySelect").value = appData.base || "MYR";
 
 function toggleEditMode() {
   isEditMode = !isEditMode;
   let btn = document.getElementById("editToggleBtn");
-  let listsContainer = document.getElementById("lists");
-  let itemsContainer = document.getElementById("items");
+  
+  // 切换各容器的删除按钮显示状态
+  let tContainer = document.getElementById("travelLists");
+  let cContainer = document.getElementById("categoryLists");
+  let iContainer = document.getElementById("itemLists");
 
   if (isEditMode) {
     btn.classList.add("active");
     btn.innerText = "退出删除模式";
-    listsContainer.classList.add("show-delete");
-    itemsContainer.classList.add("show-delete");
+    tContainer.classList.add("show-delete");
+    cContainer.classList.add("show-delete");
+    iContainer.classList.add("show-delete");
   } else {
     btn.classList.remove("active");
     btn.innerText = "🗑️ 编辑/删除";
-    listsContainer.classList.remove("show-delete");
-    itemsContainer.classList.remove("show-delete");
+    tContainer.classList.remove("show-delete");
+    cContainer.classList.remove("show-delete");
+    iContainer.classList.remove("show-delete");
   }
 }
 
-function renderLists() {
-  let container = document.getElementById("lists");
+// ---------------- 1. 最外层：大账本 (Travels) 逻辑 ----------------
+function renderTravels() {
+  let container = document.getElementById("travelLists");
   container.innerHTML = "";
 
-  for (let key in appData.categories) {
+  let keys = Object.keys(appData.travels);
+  if (keys.length === 0) {
+    container.innerHTML = `<div style="text-align:center; color:#888; padding:20px;">暂无旅行账本，点击下方按钮创建一个吧！</div>`;
+    return;
+  }
+
+  for (let travelName in appData.travels) {
     let div = document.createElement("div");
     div.className = "list";
     
     let spanName = document.createElement("span");
     spanName.className = "list-name";
-    spanName.innerText = key;
+    spanName.innerText = "✈️ " + travelName;
     spanName.onclick = () => {
-      if (!isEditMode) openCategory(key);
+      if (!isEditMode) openTravel(travelName);
     };
     
     let delBtn = document.createElement("button");
     delBtn.className = "del-btn";
-    delBtn.innerText = "删除分类";
+    delBtn.innerText = "删除账本";
     delBtn.onclick = (e) => {
       e.stopPropagation();
-      deleteCategory(key);
+      deleteTravel(travelName);
     };
 
     div.appendChild(spanName);
@@ -369,29 +387,128 @@ function renderLists() {
   }
 }
 
-function openCategory(category) {
-  currentCategory = category;
-  document.getElementById("home").classList.add("hidden");
-  document.getElementById("detail").classList.remove("hidden");
-  document.getElementById("title").innerText = category;
+function addTravelList() {
+  let name = prompt("输入新的旅行名称 (例如: 2026 曼谷之旅)");
+  if (!name) return;
+  name = name.trim();
+
+  if (appData.travels[name]) {
+    alert("该名称的账本已存在！");
+    return;
+  }
+
+  // 核心要求：一开新的List，自动自带一开始的那三个默认东西（吃、交通、杂费）
+  appData.travels[name] = {
+    "🍜 吃": [],
+    "🚗 交通": [],
+    "🛍️ 杂费": []
+  };
+
+  saveData();
+  renderTravels();
+}
+
+function deleteTravel(travelName) {
+  if (confirm(`确定要删除整个账本 "${travelName}" 吗？里面的所有消费记录都会被删掉！`)) {
+    delete appData.travels[travelName];
+    saveData();
+    renderTravels();
+  }
+}
+
+function openTravel(travelName) {
+  currentTravelKey = travelName;
+  document.getElementById("pageTravels").classList.add("hidden");
+  document.getElementById("pageCategories").classList.remove("hidden");
+  document.getElementById("travelTitle").innerText = "📖 账本: " + travelName;
+  renderCategories();
+}
+
+function goBackToTravels() {
+  document.getElementById("pageTravels").classList.remove("hidden");
+  document.getElementById("pageCategories").classList.add("hidden");
+  renderTravels();
+}
+
+// ---------------- 2. 中间层：分类列表 (Categories) 逻辑 ----------------
+function renderCategories() {
+  let container = document.getElementById("categoryLists");
+  container.innerHTML = "";
+
+  let categories = appData.travels[currentTravelKey];
+
+  for (let catName in categories) {
+    let div = document.createElement("div");
+    div.className = "list";
+    
+    let spanName = document.createElement("span");
+    spanName.className = "list-name";
+    spanName.innerText = catName;
+    spanName.onclick = () => {
+      if (!isEditMode) openCategory(catName);
+    };
+    
+    let delBtn = document.createElement("button");
+    delBtn.className = "del-btn";
+    delBtn.innerText = "删除分类";
+    delBtn.onclick = (e) => {
+      e.stopPropagation();
+      deleteCategory(catName);
+    };
+
+    div.appendChild(spanName);
+    div.appendChild(delBtn);
+    container.appendChild(div);
+  }
+}
+
+function addCategory() {
+  let name = prompt("输入新分类名称 (如: 🏨 酒店 / 🎫 门票)");
+  if (!name) return;
+  name = name.trim();
+
+  let categories = appData.travels[currentTravelKey];
+  if (!categories[name]) {
+    categories[name] = [];
+    saveData();
+    renderCategories();
+  } else {
+    alert("该分类已存在！");
+  }
+}
+
+function deleteCategory(catName) {
+  if (confirm(`确定要删除分类 "${catName}" 吗？`)) {
+    delete appData.travels[currentTravelKey][catName];
+    saveData();
+    renderCategories();
+  }
+}
+
+function openCategory(catName) {
+  currentCategoryKey = catName;
+  document.getElementById("pageCategories").classList.add("hidden");
+  document.getElementById("pageItems").classList.remove("hidden");
+  document.getElementById("categoryTitle").innerText = currentTravelKey + " ➔ " + catName;
   renderItems();
 }
 
-function goBack() {
-  document.getElementById("home").classList.remove("hidden");
-  document.getElementById("detail").classList.add("hidden");
-  renderLists();
+function goBackToCategories() {
+  document.getElementById("pageCategories").classList.remove("hidden");
+  document.getElementById("pageItems").classList.add("hidden");
+  renderCategories();
 }
 
+// ---------------- 3. 最内层：账目明细 (Items) 逻辑 ----------------
 function renderItems() {
-  let container = document.getElementById("items");
+  let container = document.getElementById("itemLists");
   container.innerHTML = "";
 
-  let list = appData.categories[currentCategory];
+  let itemList = appData.travels[currentTravelKey][currentCategoryKey];
   let baseCur = appData.base;
   let grandTotalInBase = 0;
 
-  list.forEach((item, index) => {
+  itemList.forEach((item, index) => {
     let div = document.createElement("div");
     div.className = "item";
     
@@ -420,35 +537,6 @@ function renderItems() {
   saveData();
 }
 
-function changeBaseCurrency() {
-  appData.base = document.getElementById("baseCurrencySelect").value;
-  saveData();
-  if (currentCategory) {
-    renderItems();
-  }
-}
-
-function addCategory() {
-  let name = prompt("输入分类名称 (如: 🏨 酒店)");
-  if (!name) return;
-
-  if (!appData.categories[name]) {
-    appData.categories[name] = [];
-    renderLists();
-    saveData();
-  } else {
-    alert("该分类已存在！");
-  }
-}
-
-function deleteCategory(category) {
-  if (confirm(`确定要删除分类 "${category}" 吗？`)) {
-    delete appData.categories[category];
-    renderLists();
-    saveData();
-  }
-}
-
 function openAddItemModal() {
   editingItemIndex = -1;
   document.getElementById("itemModalTitle").innerText = "添加账目";
@@ -460,7 +548,7 @@ function openAddItemModal() {
 
 function openEditItemModal(index) {
   editingItemIndex = index;
-  let item = appData.categories[currentCategory][index];
+  let item = appData.travels[currentTravelKey][currentCategoryKey][index];
   
   document.getElementById("itemModalTitle").innerText = "修改账目";
   document.getElementById("inputItemName").value = item.name;
@@ -484,14 +572,16 @@ function saveItemData() {
     return;
   }
 
+  let itemList = appData.travels[currentTravelKey][currentCategoryKey];
+
   if (editingItemIndex === -1) {
-    appData.categories[currentCategory].push({
+    itemList.push({
       name: name,
       price: Number(priceStr),
       currency: currency
     });
   } else {
-    appData.categories[currentCategory][editingItemIndex] = {
+    itemList[editingItemIndex] = {
       name: name,
       price: Number(priceStr),
       currency: currency
@@ -504,14 +594,23 @@ function saveItemData() {
 
 function deleteItem(index) {
   if (confirm("确定要删除这条记录吗？")) {
-    appData.categories[currentCategory].splice(index, 1);
+    appData.travels[currentTravelKey][currentCategoryKey].splice(index, 1);
     renderItems();
   }
 }
 
-// 汇率弹窗控制（带 Reverse Arrow 翻转功能）
+function changeBaseCurrency() {
+  appData.base = document.getElementById("baseCurrencySelect").value;
+  saveData();
+  // 如果当前在明细页面，重新渲染以刷新汇率折算
+  if (!document.getElementById("pageItems").classList.contains("hidden")) {
+    renderItems();
+  }
+}
+
+// ---------------- 汇率弹窗相关 ----------------
 function openRateModal() {
-  isRateReversed = false; // 每次打开默认恢复正常视角
+  isRateReversed = false; 
   updateRateListUI();
   document.getElementById("rateModal").classList.remove("hidden");
 }
@@ -539,7 +638,7 @@ function updateRateListUI() {
     rateTitle.innerText = "参考汇率 (1 MYR = 多少外币)";
     for (let cur in exchangeRates) {
       if (cur === "MYR") continue;
-      let val = (1 / exchangeRates[cur]).toFixed(4); // 计算 1 马币等于多少外币
+      let val = (1 / exchangeRates[cur]).toFixed(4);
       let row = document.createElement("div");
       row.className = "rate-row";
       row.innerHTML = `<span><strong>1 MYR</strong></span> <span>${val} ${cur}</span>`;
@@ -553,10 +652,11 @@ function closeRateModal() {
 }
 
 function saveData() {
-  localStorage.setItem("travel_data_v2", JSON.stringify(appData));
+  localStorage.setItem("travel_data_v3", JSON.stringify(appData));
 }
 
-renderLists();
+// 初始化加载最外层
+renderTravels();
 </script>
 
 </body>
